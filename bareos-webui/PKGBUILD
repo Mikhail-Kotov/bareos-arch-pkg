@@ -1,0 +1,71 @@
+# Maintainer: local
+# Classic (PHP/Laminas) Bareos WebUI, packaged separately from the main "bareos" package.
+# It is plain PHP: the cmake step below only fills in the config templates.
+pkgname=bareos-webui
+pkgver=25.1.1
+pkgrel=1
+pkgdesc='Bareos WebUI - PHP web frontend for the Bareos Director'
+arch=(any)
+url='https://www.bareos.org'
+license=(AGPL-3.0-or-later)
+depends=(php php-fpm php-intl php-gd)
+makedepends=(cmake git)
+optdepends=('nginx: web server (example config in /usr/share/doc/bareos-webui)'
+            'php-apache: run under Apache httpd instead of php-fpm')
+backup=(etc/bareos-webui/directors.ini
+        etc/bareos-webui/configuration.ini)
+source=("git+https://github.com/bareos/bareos.git#tag=Release/${pkgver}")
+sha256sums=('SKIP')
+
+build() {
+  # webui/CMakeLists.txt is a subdirectory of the big Bareos project and cannot be
+  # configured on its own, so wrap it. Do NOT use the top-level -DENABLE_WEBUI=ON:
+  # that also pulls in the Vue "webui-vue" preview, which needs npm at build time.
+  mkdir -p wrap
+  cat > wrap/CMakeLists.txt <<'EOF'
+cmake_minimum_required(VERSION 3.17)
+project(bareos-webui-wrapper NONE)
+include(GNUInstallDirs)
+add_subdirectory(${WEBUI_SRC} webui)
+EOF
+  cmake -S wrap -B build \
+    -DWEBUI_SRC="${srcdir}/bareos/webui" \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DBAREOS_FULL_VERSION="${pkgver}" \
+    -DVERSION_STRING="${pkgver}" \
+    -Dsysconfdir=/etc \
+    -Dconfdir=/etc/bareos \
+    -Dwebuiconfdir=/etc/bareos-webui \
+    -Dconfigtemplatedir=/usr/share/bareos/config
+}
+
+package() {
+  DESTDIR="${pkgdir}" cmake --install build
+
+  # Upstream drops an Apache snippet into /etc/httpd/conf.d, which is not where Arch
+  # keeps its Apache config; we ship an nginx example instead (below).
+  rm -rf "${pkgdir}/etc/httpd"
+
+  install -Dm644 /dev/stdin "${pkgdir}/usr/share/doc/${pkgname}/nginx-bareos-webui.conf" <<'EOF'
+# Adapted for Arch/CachyOS from webui/install/nginx/bareos-webui.conf
+# (php-fpm listens on /run/php-fpm/php-fpm.sock by default here).
+server {
+    listen       9100;
+    server_name  _;
+    root         /usr/share/bareos-webui/public;
+
+    location / {
+        index index.php;
+        try_files $uri $uri/ /index.php?$query_string;
+    }
+
+    location ~ \.php$ {
+        include fastcgi.conf;
+        fastcgi_pass unix:/run/php-fpm/php-fpm.sock;
+        fastcgi_param APPLICATION_ENV production;
+    }
+}
+EOF
+
+  install -Dm644 bareos/webui/LICENSE "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+}
