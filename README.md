@@ -14,7 +14,9 @@ makepkg -si
 
 Or strait away, if you don't want to compile, using pacman.
 ```
+cd bareos-arch-pkg/bareos
 pacman -U bareos-25.1.1-1-x86_64.pkg.tar.zst
+cd ../bareos-webui
 pacman -U bareos-webui-25.1.1-1-any.pkg.tar.zst
 ```
 
